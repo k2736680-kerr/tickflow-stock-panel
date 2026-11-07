@@ -65,6 +65,7 @@ export function Onboarding() {
         old ? { ...old, onboarding_completed: data.onboarding_completed } : old,
       )
       qc.invalidateQueries({ queryKey: QK.settings })
+      qc.invalidateQueries({ queryKey: QK.preferences })
       navigate('/', { replace: true })
     },
     onError: () => {
@@ -694,9 +695,10 @@ function FinishStep({ onNext, onBack, pending }: { onNext: () => void; onBack: (
   // 首要行动:获取数据(不管配没配 Key, 新用户都需要先拉数据)
   // 快速上手入口(精简为核心功能)
   const tips = [
-    { icon: TrendingUp, text: '「个股分析」:输入代码,AI 四维分析 + 关键价位' },
-    { icon: ScanSearch, text: '「选股」页:内置多套策略,一键扫描全市场' },
-    { icon: ShieldCheck, text: '「回测」页:用历史数据验证策略表现,用数据说话' },
+    { icon: Sparkles, text: '「今日」页:先看买不买。闸门关着就空仓，有候选也只是观察池' },
+    { icon: TrendingUp, text: '「个股分析」:看日 K 和关键价位，用来研究，不是下单' },
+    { icon: ScanSearch, text: '「策略」页:扫描当天符合规则的股票，命中 ≠ 买入建议' },
+    { icon: ShieldCheck, text: '没有 90% 上涨承诺。回测/挖掘等完整功能可在设置 → 菜单设置打开' },
   ]
 
   return (
@@ -724,8 +726,8 @@ function FinishStep({ onNext, onBack, pending }: { onNext: () => void; onBack: (
       <h1 className="mt-6 text-2xl font-bold text-foreground">一切就绪!</h1>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed max-w-md mx-auto">
         {hasKey
-          ? 'Key 已生效,进入面板后系统会自动引导你获取行情数据,完成后即可使用全部功能。'
-          : '当前为 None 档,进入面板后系统会自动引导你获取历史日K数据(无需 Key),即可开始体验。'}
+          ? 'Key 已生效。进入后面板会先显示新手菜单（今日 / 看板 / 自选 / 策略 / 个股分析 / 数据），并引导你获取行情数据。这是研究工具，不是交易软件。'
+          : '当前为 None 档，只能用历史日 K，没有实时行情。进入后会显示新手菜单；完整功能可在设置 → 菜单设置恢复。'}
       </p>
 
       {/* 首要行动:获取数据 */}

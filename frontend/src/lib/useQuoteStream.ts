@@ -216,7 +216,7 @@ export function useQuoteStream(
         failCount += 1
         _setStatus('reconnecting')
         // 连续失败到阈值 → 弹一次 toast (漏行情=可能漏策略告警, 需明确告知)
-        if (failCount >= FAILS_BEFORE_TOAST && !toastFired) {
+        if (failCount >= FAILS_BEFORE_TOAST && !toastFired && enabledRef.current) {
           toastFired = true
           toast('实时连接已断开，正在重连…', 'error')
         }

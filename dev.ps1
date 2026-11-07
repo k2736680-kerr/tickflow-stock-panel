@@ -1,11 +1,13 @@
 # tickflow-stock-panel - one-shot launcher for backend + frontend (Windows / PowerShell)
 #
 # Usage:
+#   启动.bat
 #   .\dev.ps1
 #   .\dev.ps1 -BackendPort 8000 -FrontendPort 5173
 #   $env:BACKEND_PORT='8000'; .\dev.ps1
 #
-# Ctrl-C closes both processes.
+# Ctrl-C / close the window stops both processes.
+# Backend auto-syncs daily K-line if local data is behind.
 #
 # If you see "running scripts is disabled":
 #   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
@@ -181,7 +183,8 @@ Write-Host '|                                              |' -ForegroundColor B
 Write-Host "|  backend   http://${DisplayHost}:$BackendPort"  -ForegroundColor Blue
 Write-Host "|  frontend  http://${DisplayHost}:$FrontendPort" -ForegroundColor Blue
 Write-Host '|                                              |' -ForegroundColor Blue
-Write-Host '|  Ctrl-C closes both                          |' -ForegroundColor Blue
+Write-Host '|  Ctrl-C / close window stops both            |' -ForegroundColor Blue
+Write-Host '|  stale daily bars catch up on start          |' -ForegroundColor Blue
 Write-Host '+----------------------------------------------+' -ForegroundColor Blue
 Write-Host ''
 
@@ -231,6 +234,21 @@ function Read-JobPid($file) {
 $backendChildPid  = Read-JobPid $backendPidFile
 $frontendChildPid = Read-JobPid $frontendPidFile
 
+$openJob = Start-Job -Name 'open-browser' -ScriptBlock {
+    param($displayHost, $backendPort, $frontendPort)
+    for ($i = 0; $i -lt 90; $i++) {
+        try {
+            $ok = Invoke-WebRequest -Uri "http://${displayHost}:${backendPort}/health" -UseBasicParsing -TimeoutSec 2
+            if ($ok.StatusCode -eq 200) {
+                Start-Sleep -Seconds 3
+                Start-Process "http://${displayHost}:${frontendPort}/picks"
+                return
+            }
+        } catch {}
+        Start-Sleep -Seconds 1
+    }
+} -ArgumentList $DisplayHost, $BackendPort, $FrontendPort
+
 # ===== 6. Cleanup =====
 $script:cleaning = $false
 function Cleanup-All {
@@ -245,7 +263,7 @@ function Cleanup-All {
             $null = & cmd /c "taskkill /F /T /PID $p 2>nul"
         }
     }
-    foreach ($j in @($backendJob, $frontendJob)) {
+    foreach ($j in @($backendJob, $frontendJob, $openJob)) {
         if ($j) {
             Stop-Job   $j -ErrorAction SilentlyContinue
             Remove-Job $j -Force -ErrorAction SilentlyContinue

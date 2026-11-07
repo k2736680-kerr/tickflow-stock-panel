@@ -21,7 +21,8 @@ class _FakeRepo:
 
     def __init__(self, enriched_df, enriched_date, etf_df=None, etf_date=None,
                  instruments_df=None, name_map=None, etf_set=None,
-                 index_df=None, index_date=None, index_set=None):
+                 index_df=None, index_date=None, index_set=None,
+                 peek_df=None, peek_date=None):
         self._enriched = enriched_df
         self._enriched_date = enriched_date
         self._etf = etf_df
@@ -32,9 +33,14 @@ class _FakeRepo:
         self._name_map = name_map or {}
         self._etf_set = etf_set or set()
         self._index_set = index_set or set()
+        self._peek = peek_df if peek_df is not None else pl.DataFrame()
+        self._peek_date = peek_date
 
     def get_enriched_latest(self):
         return self._enriched, self._enriched_date
+
+    def peek_latest_ohlc(self):
+        return self._peek, self._peek_date
 
     def get_enriched_latest_asset(self, asset):
         if asset == "etf":
@@ -100,6 +106,27 @@ def test_watchlist_symbol_not_in_enriched_still_returned(monkeypatch):
     # 命中标的指标正常
     row_519 = next(r for r in res["rows"] if r["symbol"] == "600519")
     assert row_519["close"] == 1800.0
+
+
+def test_watchlist_uses_disk_peek_when_cache_empty(monkeypatch):
+    """预热空窗：磁盘最新日有收盘价时，自选不能变成空表。"""
+    monkeypatch.setattr(wl_api.watchlist, "list_symbols",
+                        lambda: [{"symbol": "603351.SH"}])
+    repo = _FakeRepo(
+        enriched_df=pl.DataFrame(schema={"symbol": pl.Utf8}),
+        enriched_date=None,
+        peek_df=_enriched_df([("603351.SH", 27.42, 0.012, 1e8)]),
+        peek_date="2026-11-02",
+        name_map={"603351.SH": "威尔药业"},
+    )
+
+    res = wl_api.watchlist_enriched(_make_request(repo), ext_columns=None)
+
+    assert res["as_of"] == "2026-11-02"
+    row = res["rows"][0]
+    assert row["symbol"] == "603351.SH"
+    assert row["close"] == 27.42
+    assert row["name"] == "威尔药业"
 
 
 def test_all_watchlist_missing_from_enriched(monkeypatch):

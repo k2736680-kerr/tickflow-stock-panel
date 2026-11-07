@@ -62,6 +62,11 @@ def save(updates: dict) -> dict:
         json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
     )
     _invalidate_cache()
+    try:
+        from app.services import remote_store
+        remote_store.push_user_state()
+    except Exception:
+        pass
     return current
 
 
@@ -957,6 +962,24 @@ def set_nav_order(order: list[str]) -> list[str]:
     return get_nav_order()
 
 
+# 新手界面默认隐藏的侧栏页面。与 frontend/src/lib/beginnerNav.ts 保持一致。
+# 保留看板 / 自选 / 策略 / 个股分析 / 数据，避免把研究页误当成交易终端。
+# 与 frontend/src/lib/beginnerNav.ts 保持一致。今日(/picks)必须可见。
+BEGINNER_NAV_HIDDEN: list[str] = [
+    "/backtest",
+    "/mining",
+    "/limit-ladder",
+    "/concept-analysis",
+    "/industry-analysis",
+    "/regime",
+    "/abnormal",
+    "/review",
+    "/financials",
+    "/indices",
+    "/monitor",
+]
+
+
 def get_nav_hidden() -> list[str]:
     """返回左侧菜单中隐藏的项 id 列表。"""
     return load().get("nav_hidden", [])
@@ -966,6 +989,14 @@ def set_nav_hidden(hidden: list[str]) -> list[str]:
     """保存左侧菜单隐藏项。"""
     save({"nav_hidden": hidden})
     return get_nav_hidden()
+
+
+def apply_beginner_nav_if_unset() -> list[str]:
+    """首次完成引导时，若用户尚未自定义隐藏菜单，则套用新手侧栏。"""
+    current = get_nav_hidden()
+    if current:
+        return current
+    return set_nav_hidden(list(BEGINNER_NAV_HIDDEN))
 
 
 def get_watchlist_columns() -> list[dict] | None:

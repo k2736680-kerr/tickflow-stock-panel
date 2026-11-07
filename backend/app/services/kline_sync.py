@@ -156,6 +156,29 @@ def sync_daily_batch(symbols: list[str],
     return pl.concat(out, how="diagonal_relaxed")
 
 
+def probe_latest_daily_date(symbol: str = "000001.SZ",
+                            lookback_days: int = 10) -> date | None:
+    """轻量探测数据源最新的 A 股日 K 交易日（只拉 1 只基准票）。
+
+    免费数据源收盘后出数时间不固定（15:40 到 18:00 之后都见过），用固定钟点
+    赌一次会让 15:30 管道空手后整天不再重试。盘后轮询用本函数判断「当日收盘 K
+    到了没」，到了才触发完整管道补跑，避免每 5 分钟白拉全市场。
+
+    返回 None 表示探测失败或暂无数据 —— 调用方等待下次轮询即可，不视为错误。
+    """
+    end = cn_now() + timedelta(days=1)
+    start = end - timedelta(days=lookback_days)
+    try:
+        df = sync_daily_batch([symbol], start_time=start, end_time=end)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("probe latest daily failed (soft): %s", e)
+        return None
+    if df.is_empty() or "date" not in df.columns:
+        return None
+    dates = [d for d in df["date"].drop_nulls().to_list() if isinstance(d, date)]
+    return max(dates) if dates else None
+
+
 def sync_and_persist_daily_batch(
     symbols: list[str],
     repo: KlineRepository,

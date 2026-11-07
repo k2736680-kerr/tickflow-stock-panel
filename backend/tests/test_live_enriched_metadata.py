@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from app.market_time import cn_today
 from app.strategy.engine import StrategyEngine
@@ -102,3 +103,32 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
     monitor.evaluate(current)
 
     assert monitor.latest_strategy_results()["history_strategy"]["total"] == 1
+
+
+def test_peek_latest_ohlc_works_while_enriched_warming(tmp_path):
+    repo = _repo(tmp_path)
+    d1 = date(2026, 11, 1)
+    d2 = date(2026, 11, 2)
+    for day, close in ((d1, 10.0), (d2, 10.2)):
+        part = tmp_path / "kline_daily_enriched" / f"date={day.isoformat()}"
+        part.mkdir(parents=True)
+        pl.DataFrame({
+            "symbol": ["600000.SH"],
+            "date": [day],
+            "open": [close],
+            "high": [close],
+            "low": [close],
+            "close": [close],
+            "volume": [1000.0],
+            "amount": [close * 1000.0],
+        }).write_parquet(part / "part.parquet")
+
+    repo._enriched_warming = True
+    cached, cached_date = repo.get_enriched_latest()
+    assert cached.is_empty()
+    assert cached_date is None
+
+    peek, peek_date = repo.peek_latest_ohlc()
+    assert peek_date == d2
+    assert peek["close"][0] == 10.2
+    assert peek["change_pct"][0] == pytest.approx(0.02)

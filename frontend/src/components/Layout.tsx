@@ -63,6 +63,7 @@ import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitor
 import { useMarket } from '@/lib/market'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
+import { isBeginnerNav } from '@/lib/beginnerNav'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
@@ -77,6 +78,7 @@ const CORE_INDEXES = [
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
 const nav = [
+  { to: '/picks',      label: '今日',     icon: Sparkles },
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/watchlist',  label: '自选',   icon: Star },
   { to: '/screener',   label: '策略',   icon: ScanSearch },
@@ -865,6 +867,14 @@ export function Layout() {
         )}
 
         <div className={cn('border-t border-border py-3 shrink-0', navCollapsed ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
+          {!navCollapsed && isBeginnerNav(prefs?.nav_hidden) && (
+            <NavLink
+              to="/settings?tab=menus"
+              className="mb-1 mx-1 rounded-btn px-3 py-1.5 text-[11px] text-muted hover:text-foreground hover:bg-elevated/60"
+            >
+              新手菜单 · 去恢复完整功能
+            </NavLink>
+          )}
           <div className={navCollapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
             <ThemeToggle />
             <NavLink
@@ -908,7 +918,7 @@ export function Layout() {
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
         className="h-full overflow-auto scrollbar-gutter-stable"
       >
-        {streamStatus === 'reconnecting' && (
+        {streamStatus === 'reconnecting' && !realtimeUnavailable && (
           <div
             role="status"
             aria-live="polite"

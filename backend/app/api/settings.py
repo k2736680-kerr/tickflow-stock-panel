@@ -243,7 +243,9 @@ def complete_onboarding() -> dict:
     """
     from app.services import preferences
     done = preferences.set_onboarding_completed(True)
-    return {"ok": True, "onboarding_completed": done}
+    # 未自定义过侧栏时套用新手菜单，降低功能面过宽导致的误用。
+    nav_hidden = preferences.apply_beginner_nav_if_unset()
+    return {"ok": True, "onboarding_completed": done, "nav_hidden": nav_hidden}
 
 
 class AiSettingsIn(BaseModel):

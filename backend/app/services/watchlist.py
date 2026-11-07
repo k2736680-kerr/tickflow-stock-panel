@@ -113,6 +113,11 @@ def _write_entries(df: pl.DataFrame) -> None:
     df.select(list(_ENTRY_SCHEMA)).write_parquet(tmp)
     os.replace(tmp, p)
     _REVISION += 1
+    try:
+        from app.services import remote_store
+        remote_store.push_user_state()
+    except Exception:
+        pass
 
 
 def _read_groups() -> list[dict]:
@@ -145,6 +150,11 @@ def _write_groups(groups: list[dict]) -> None:
     tmp.write_text(json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, p)
     _REVISION += 1
+    try:
+        from app.services import remote_store
+        remote_store.push_user_state()
+    except Exception:
+        pass
 
 
 def _normalize_group_name(name: str) -> str:

@@ -300,6 +300,16 @@ def watchlist_enriched(
     stock_symbols = [s for s in symbols if s not in etf_set and s not in index_set]
 
     df_e, cache_date = repo.get_enriched_latest()
+    if df_e.is_empty():
+        # 预热空窗：不跑 300 天指标，只读磁盘最新日 OHLC，避免自选变成空表。
+        peek_fn = getattr(repo, "peek_latest_ohlc", None)
+        if peek_fn is not None:
+            try:
+                peek, peek_date = peek_fn()
+            except Exception:  # noqa: BLE001
+                peek, peek_date = pl.DataFrame(), None
+            if peek is not None and not peek.is_empty():
+                df_e, cache_date = peek, peek_date
 
     # 以自选列表为主表 LEFT JOIN enriched, 保证自选的每一只都返回一行;
     # 不在 enriched 缓存里的标的 (新股/冷门股/新用户未同步) 指标为 null, 前端渲染为 "—".

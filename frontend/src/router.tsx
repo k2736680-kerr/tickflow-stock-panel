@@ -23,6 +23,7 @@ const Financials = lazy(() => import('./pages/Financials').then(m => ({ default:
 const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
+const BeginnerPicks = lazy(() => import('./pages/BeginnerPicks').then(m => ({ default: m.BeginnerPicks })))
 const AnalysisDetail = lazy(() => import('./pages/AnalysisDetail').then(m => ({ default: m.AnalysisDetail })))
 const ConceptAnalysis = lazy(() => import('./pages/ConceptAnalysis').then(m => ({ default: m.ConceptAnalysis })))
 const IndustryAnalysis = lazy(() => import('./pages/IndustryAnalysis').then(m => ({ default: m.IndustryAnalysis })))
@@ -40,6 +41,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/',
   '/onboarding',
   '/login',
+  '/picks',
   '/overview',
   '/analysis',
   '/analysis/:menuId',
@@ -101,6 +103,10 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function HomeRoute() {
+  return <Dashboard />
+}
+
 export const router = createBrowserRouter([
   { path: '/onboarding', element: <Onboarding /> },
   { path: '/login', element: <Auth /> },
@@ -112,7 +118,8 @@ export const router = createBrowserRouter([
       </OnboardingGuard>
     ),
     children: [
-      { index: true, element: <Dashboard /> },
+      { index: true, element: <HomeRoute /> },
+      { path: 'picks', element: <BeginnerPicks /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=ext-pages" replace /> },
       { path: 'analysis/:menuId', element: <AnalysisDetail /> },

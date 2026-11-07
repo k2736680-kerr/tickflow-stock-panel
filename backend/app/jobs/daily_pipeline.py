@@ -11,7 +11,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
+from datetime import date as _date
+from datetime import datetime as _datetime
+from datetime import time as _time
+from datetime import timedelta as _td
 from pathlib import Path
 
 import polars as pl
@@ -19,9 +24,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.indicators.pipeline import run_pipeline, run_pipeline_market
 from app.config import settings
-from app.services import index_sync, instrument_sync, kline_sync, preferences as _prefs
+from app.indicators.pipeline import run_pipeline, run_pipeline_market
+from app.market_time import CN_TZ, cn_now
+from app.services import index_sync, instrument_sync, kline_sync
+from app.services import preferences as _prefs
 from app.tickflow.capabilities import Cap, CapabilitySet
 from app.tickflow.pools import DEMO_SYMBOLS, get_pool
 from app.tickflow.repository import KlineRepository
@@ -54,12 +61,23 @@ def _invalidate(table: str | None = None) -> None:
     invalidate_data_cache(table)
 
 
+# 只要 A 股: 非沪深京后缀(港/美股等)不进日K同步池。
+# 免费档拿不到 CN_Equity_A universe 时会退回 instruments 全量维表(2 万+ 只),
+# 不过滤会把港美股日K一起拉, 盘后管道从几十秒拖到数分钟, 还白耗免费额度。
+_A_SHARE_SUFFIXES = (".SH", ".SZ", ".BJ")
+
+
+def _is_a_share(symbol: object) -> bool:
+    return str(symbol).upper().endswith(_A_SHARE_SUFFIXES)
+
+
 def _resolve_universe(capset: CapabilitySet, repo=None) -> list[str]:
     """解析标的池 — 以 CN_Equity_A (沪深京A股 ~5522只) 为主。
 
     有 batch 能力 → 直接拉 CN_Equity_A universe
     其他用户 → 用 instruments parquet + watchlist 兜底
 
+    只保留沪深京 A 股后缀; 港美股等其它市场不进本池(本机只用 A 股)。
     repo 传入时过滤自选兜底里的指数 symbol (指数日K走独立 kline_index_* 存储,
     进股票池会污染 kline_daily/kline_minute)。ETF 刻意保留 (既有行为)。
     """
@@ -67,19 +85,19 @@ def _resolve_universe(capset: CapabilitySet, repo=None) -> list[str]:
         try:
             all_a = get_pool("CN_Equity_A", refresh=True)
             if all_a:
-                return sorted(all_a)
+                return sorted({s for s in all_a if _is_a_share(s)})
         except Exception as e:  # noqa: BLE001
             logger.warning("CN_Equity_A pool unavailable, fallback: %s", e)
 
     # Free 用户兜底: instruments parquet + watchlist + demo
-    base: set[str] = set(DEMO_SYMBOLS)
-    base.update(get_pool("watchlist"))
+    base: set[str] = {s for s in DEMO_SYMBOLS if _is_a_share(s)}
+    base.update(s for s in get_pool("watchlist") if _is_a_share(s))
     d = Path(settings.data_dir)
     inst_path = d / "instruments" / "instruments.parquet"
     if inst_path.exists():
         try:
             inst = pl.read_parquet(inst_path, columns=["symbol"])
-            base.update(inst["symbol"].to_list())
+            base.update(s for s in inst["symbol"].to_list() if _is_a_share(s))
         except Exception as e:  # noqa: BLE001
             logger.warning("instruments supplement failed: %s", e)
     # 过滤自选兜底里的指数 symbol (指数日K走独立 kline_index_* 存储,
@@ -729,6 +747,13 @@ def run_now(
     if stage_errors:
         raise PipelineStageError(stage_errors)
 
+    try:
+        from app.services.beginner_pick_review import refresh_after_pipeline
+
+        refresh_after_pipeline(repo)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("beginner pick review after pipeline failed (soft): %s", e)
+
     return result
 
 
@@ -1066,11 +1091,131 @@ def _register_review_job(scheduler, repo, hour: int, minute: int) -> None:
     )
 
 
+# 盘后补跑: 免费数据源出数时间不固定, 不再用 17:00 之类固定钟点赌一次。
+# 收盘后每 CATCH_UP_INTERVAL_MIN 分钟探一次数据源, 当日 K 一到就自动补跑管道,
+# 「今日」页 as_of 与复盘结算随 enriched 刷新, 无需人工卡点或外部定时任务。
+CATCH_UP_JOB_ID = "post_close_catch_up"
+CATCH_UP_INTERVAL_MIN = 5
+CATCH_UP_WINDOW_START = _time(15, 5)
+CATCH_UP_WINDOW_END = _time(20, 0)
+_catch_up_done_day: _date | None = None
+
+
+def expected_kline_as_of(now: _datetime | None = None) -> _date:
+    """最近一个「已收盘」的交易日 —— 本机日 K 的最低目标日期。
+
+    只以 A 股收盘时刻 15:00 为界: 收盘前用上一工作日, 收盘后用今天。
+    这里刻意不再放 17:00 之类的等待点: 那是替数据源猜出数时间, 猜早了白跑、
+    猜晚了白等。数据是否真的到了, 由 probe_latest_daily_date() 实测决定。
+
+    注: 只跳周末(与既有行为一致); 节假日由数据源不返回当日 K 自然体现。
+    """
+    now = now or cn_now()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    else:
+        now = now.astimezone(CN_TZ)
+    day = now.date()
+    if now.time() < _time(15, 0) or day.weekday() >= 5:
+        day -= _td(days=1)
+    while day.weekday() >= 5:
+        day -= _td(days=1)
+    return day
+
+
+def needs_boot_catch_up(latest: _date | None, now: _datetime | None = None) -> bool:
+    """本地日 K 是否落后于最近一个已收盘交易日。"""
+    return latest is None or latest < expected_kline_as_of(now)
+
+
+def in_post_close_window(now: _datetime | None = None) -> bool:
+    """是否处于「收盘后允许补跑」的时间窗(工作日 15:05~20:00)。"""
+    now = now or cn_now()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CN_TZ)
+    else:
+        now = now.astimezone(CN_TZ)
+    if now.weekday() >= 5:
+        return False
+    return CATCH_UP_WINDOW_START <= now.time() < CATCH_UP_WINDOW_END
+
+
+def should_catch_up_today(local_latest: _date | None,
+                          remote_latest: _date | None,
+                          now: _datetime | None = None,
+                          done_day: _date | None = None) -> bool:
+    """纯判定: 在窗口内 + 本地落后 + 远端已有当日 K + 今天没补跑过 → 该补跑。"""
+    now = now or cn_now()
+    if not in_post_close_window(now):
+        return False
+    expected = expected_kline_as_of(now)
+    if (done_day if done_day is not None else _catch_up_done_day) == expected:
+        return False
+    if local_latest is not None and local_latest >= expected:
+        return False
+    return remote_latest is not None and remote_latest >= expected
+
+
+def _post_close_catch_up_task(repo: KlineRepository, pipeline_fn) -> None:
+    """轮询入口: 数据没齐只记日志, 数据齐了才跑完整管道, 成功当天不再重跑。"""
+    global _catch_up_done_day
+    now = cn_now()
+    if not in_post_close_window(now):
+        return
+    expected = expected_kline_as_of(now)
+    local = repo.latest_daily_date()
+    if local is not None and local >= expected:
+        _catch_up_done_day = expected
+        return
+    if _catch_up_done_day == expected:
+        return
+    remote = kline_sync.probe_latest_daily_date()
+    if not should_catch_up_today(local, remote, now):
+        logger.info("post-close catch-up wait: local=%s remote=%s expected=%s",
+                    local, remote, expected)
+        return
+    logger.info("post-close catch-up trigger: remote %s arrived (local %s)", remote, local)
+    if _run_tracked(pipeline_fn, "post_close_catch_up"):
+        _catch_up_done_day = expected
+        logger.info("post-close catch-up done for %s", expected)
+
+
+def maybe_boot_catch_up(repo: KlineRepository, pipeline_fn, *, delay_sec: float = 8.0) -> None:
+    """开机时若本地日 K 落后,后台补跑盘后管道。机器没在 15:30 开着时 cron 不会补。
+
+    同样改为数据驱动: 先探远端最新日 K, 数据源当天还没出数就交给盘后轮询接管,
+    不在开机时空跑一次全市场拉取。
+    """
+
+    def _run() -> None:
+        try:
+            latest = repo.latest_daily_date()
+            expected = expected_kline_as_of()
+            if not needs_boot_catch_up(latest):
+                logger.info("boot pipeline skip: local %s >= expected %s", latest, expected)
+                return
+            remote = kline_sync.probe_latest_daily_date()
+            if remote is None or remote < expected:
+                logger.info("boot pipeline wait: remote %s < expected %s, "
+                            "post-close catch-up will retry", remote, expected)
+                return
+            logger.info("boot pipeline catch-up: local %s < remote %s (expected %s)",
+                        latest, remote, expected)
+            _scheduled_pipeline_task(pipeline_fn)
+        except Exception:
+            logger.exception("boot pipeline catch-up failed")
+
+    timer = threading.Timer(delay_sec, _run)
+    timer.daemon = True
+    timer.start()
+
+
 def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
     """启动调度器。
 
     工作日 09:10 — 同步个股维表
     工作日 HH:MM — 盘后管道（时间由用户偏好决定，默认 15:30）
+    进程刚起来时若日 K 落后,会再补跑一次盘后管道(电脑没开着会错过 cron)。
     """
     from app.services import preferences
     sched = preferences.get_pipeline_schedule()
@@ -1127,6 +1272,18 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                             timezone="Asia/Shanghai"),
         id="daily_pipeline",
         misfire_grace_time=3600,
+        replace_existing=True,
+    )
+
+    # 盘后数据齐备轮询: 15:30 主管道若因数据源尚未出当日收盘 K 而空手,
+    # 每 5 分钟轻量探一次, 数据一到自动补跑 → 页面 as_of 与复盘结算随之刷新。
+    # 函数内部自带 15:05~20:00 工作日时间窗与「当天只跑一次」幂等, 全天挂着无副作用。
+    scheduler.add_job(
+        lambda: _post_close_catch_up_task(repo, _pipeline_then_refresh),
+        trigger=IntervalTrigger(minutes=CATCH_UP_INTERVAL_MIN, timezone="Asia/Shanghai"),
+        id=CATCH_UP_JOB_ID,
+        misfire_grace_time=300,
+        max_instances=1,
         replace_existing=True,
     )
 
@@ -1192,6 +1349,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
                 depth_sched["hour"], depth_sched["minute"])
+    maybe_boot_catch_up(repo, _pipeline_then_refresh)
     return scheduler
 
 

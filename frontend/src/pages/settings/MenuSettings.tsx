@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { BEGINNER_NAV_HIDDEN, isBeginnerNav } from '@/lib/beginnerNav'
 
 interface NavEntry {
   id: string
@@ -31,6 +32,7 @@ interface NavEntry {
 }
 
 const BUILTIN_PAGES: NavEntry[] = [
+  { id: '/picks', label: '今日', type: 'builtin', visible: true },
   { id: '/', label: '看板', type: 'builtin', visible: true },
   { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
   { id: '/screener', label: '策略', type: 'builtin', visible: true },
@@ -206,6 +208,7 @@ export function SettingsMenuSettingsPanel() {
   }, [prefs?.nav_order, analysisEntries])
 
   const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
+  const beginnerActive = isBeginnerNav(prefs?.nav_hidden)
 
   // Local order state for optimistic drag updates
   const [localOrder, setLocalOrder] = useState<string[] | null>(null)
@@ -291,7 +294,29 @@ export function SettingsMenuSettingsPanel() {
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
           拖动左侧手柄调整菜单排列顺序，点击眼睛图标控制菜单在侧边栏中的显示或隐藏。
+          新手界面只保留看板、自选、策略、个股分析和数据，避免把回测/挖掘误当成下单工具。
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => saveNavHidden.mutate([...BEGINNER_NAV_HIDDEN])}
+            disabled={saveNavHidden.isPending || beginnerActive}
+            className="px-3 h-8 rounded-btn border border-border bg-elevated text-xs text-foreground hover:border-accent/40 disabled:opacity-40"
+          >
+            应用新手菜单
+          </button>
+          <button
+            type="button"
+            onClick={() => saveNavHidden.mutate([])}
+            disabled={saveNavHidden.isPending || hiddenSet.size === 0}
+            className="px-3 h-8 rounded-btn border border-border bg-surface text-xs text-secondary hover:text-foreground disabled:opacity-40"
+          >
+            恢复完整菜单
+          </button>
+          {beginnerActive && (
+            <span className="text-[11px] text-muted">当前为新手菜单</span>
+          )}
+        </div>
       </section>
 
       <section className="rounded-card border border-border bg-surface overflow-hidden">

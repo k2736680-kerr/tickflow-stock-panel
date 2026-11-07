@@ -169,6 +169,7 @@ export function Screener() {
   })
 
   const dataStatus = useDataStatus({ staleTime: 0 })
+  const enrichedReady = (dataStatus.data?.enriched?.trading_days ?? 0) > 0
 
   // 默认日期 = enriched 最新日期（始终跟随最新）
   useEffect(() => {
@@ -896,6 +897,10 @@ export function Screener() {
                 </div>
               </div>
 
+              <div className="rounded-btn border border-border bg-elevated/40 px-3 py-2 text-[11px] text-muted leading-relaxed">
+                命中只表示该日满足所选规则，不是买入建议，也不保证盈利。回测或历史命中不能代表未来收益。
+              </div>
+
               {/* 筛选面板: 只要原始结果有数据就显示 (哪怕筛完后为空, 用户才能改条件) */}
               {showFilter && (showAll ? allRows.length > 0 : !!result?.rows.length) && (
                 <FilterPanel
@@ -915,7 +920,9 @@ export function Screener() {
                   title={filterActive(filter) ? '筛选后无命中' : '今日无命中'}
                   hint={filterActive(filter)
                     ? '当前筛选条件过严, 试试放宽或重置筛选。'
-                    : '可能数据未跑盘后管道,或策略条件过于严苛。试试 POST /api/pipeline/run。'}
+                    : enrichedReady
+                      ? '本地指标表已就绪。没有股票同时满足该策略全部条件，这不是系统故障，也不是买入或卖出建议。'
+                      : '本地还没有指标表。请先打开「数据」页，点击「立即同步」，完成后再回来扫描。'}
                 />
               ) : (
                 <>
@@ -954,7 +961,11 @@ export function Screener() {
               </div>
               <div className="flex flex-col items-center gap-1.5">
                 <span className="text-sm text-secondary">点击策略卡片查看选股结果</span>
-                <span className="text-[11px] text-muted">若提示 enriched 表无数据，请先运行盘后管道</span>
+                <span className="text-[11px] text-muted">
+                  {enrichedReady
+                    ? '命中只表示当天符合规则，不是买入建议。'
+                    : '请先到「数据」页同步日 K，再回来选股。'}
+                </span>
               </div>
             </div>
           )}

@@ -1545,8 +1545,134 @@ export interface StrategyAlertEvent {
 }
 
 // ===== API surface =====
+export interface BeginnerGate {
+  id: string
+  label: string
+  ok: boolean
+  detail: string
+  hard: boolean
+}
+
+export interface BeginnerPick {
+  symbol: string
+  name: string
+  close: number | null
+  change_pct: number | null
+  momentum_20d: number | null
+  vol_ratio_5d: number | null
+  mktcap_yi: number | null
+  score: number
+  reasons: string[]
+  theme: string | null
+}
+
+export interface BeginnerPicksResponse {
+  as_of: string | null
+  signal_note: string
+  verdict: 'closed' | 'open' | 'no_candidates'
+  headline: string
+  hold_trading_days: number
+  review_trading_days: number
+  open_gap_skip: number
+  take_profit: number
+  index_symbol: string
+  g1: number | null
+  gates: BeginnerGate[]
+  picks: BeginnerPick[]
+  themes: { name: string; avg_pct: number | null; count: number }[]
+  pick_mode: 'e1' | 'e1_skip_regime' | 'e1_empty'
+  csi_band?: string | null
+  funnel: Record<string, number>
+  overlays: {
+    announcements: boolean
+    buyback: boolean
+    announcement_rows: number
+    buyback_rows: number
+    note: string
+  }
+  honesty: {
+    not_a_guarantee: boolean
+    headline: string
+    why_not_next_day: string
+    historical_note: string
+    live_note: string
+    evidence?: {
+      id: string
+      sample_start: string
+      sample_end: string
+      path: string
+      ledger: string
+      note: string
+    }
+    rise_causes: { cause: string; result: string; use: 'keep' | 'drop' }[]
+    what_we_kept: string[]
+    what_we_dropped: string[]
+  }
+  how_to_use: string[]
+  live_review?: BeginnerLiveReview
+}
+
+export interface BeginnerLiveReviewPick {
+  symbol: string
+  name: string
+  signal_close: number | null
+  dd60?: number | null
+  amt_q?: number | null
+  vol_ratio_5d?: number | null
+  next_high?: number | null
+  tplus1_date?: string | null
+  tplus1_close?: number | null
+  tplus1_vs_buy?: number | null
+  buy_date?: string | null
+  buy_open?: number | null
+  next_close?: number | null
+  next_close_date?: string | null
+  next_close_vs_signal?: number | null
+  next_close_vs_buy?: number | null
+  correct_next_close?: boolean | null
+  skipped_gap?: boolean
+  status?: string
+  tp_hit?: boolean | null
+  tp_date?: string | null
+}
+
+export interface BeginnerLiveReviewSession {
+  as_of: string
+  buy_date?: string | null
+  verdict?: string
+  pick_mode?: string
+  csi_band?: string | null
+  headline?: string
+  settled?: boolean
+  next_close_n?: number
+  next_close_win?: number
+  picks: BeginnerLiveReviewPick[]
+}
+
+export interface BeginnerLiveReview {
+  stats: {
+    days_logged: number
+    days_settled: number
+    empty_days: number
+    picks_settled: number
+    next_close_win: number
+    next_close_win_rate: number | null
+    auto_tune: boolean
+    note: string
+    rule_change?: {
+      min_settled_days: number
+      settled_days: number
+      ready: boolean
+      changes_rules: boolean
+      note: string
+    }
+  }
+  sessions: BeginnerLiveReviewSession[]
+}
+
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
+  beginnerPicks: () => request<BeginnerPicksResponse>('/api/beginner/picks'),
 
   // ===== Auth (访问认证) =====
   authStatus: () =>
@@ -1580,7 +1706,7 @@ export const api = {
 
   /** 标记首次使用向导完成（持久化到后端 preferences） */
   completeOnboarding: () =>
-    request<{ ok: boolean; onboarding_completed: boolean }>(
+    request<{ ok: boolean; onboarding_completed: boolean; nav_hidden?: string[] }>(
       '/api/settings/onboarding/complete', { method: 'POST' },
     ),
 

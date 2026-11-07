@@ -98,6 +98,8 @@ def sync_instruments(data_dir: Path, markets: list[str] | None = None) -> int:
     if markets is None:
         markets = list(ALL_MARKETS)
 
+    failed_exchanges: set[str] = set()
+    failed_markets: set[str] = set()
     all_rows = _fetch_instruments_via_provider()
     if all_rows is None:
         # 未命中非 tickflow provider → 走 tickflow 直连
@@ -110,16 +112,63 @@ def sync_instruments(data_dir: Path, markets: list[str] | None = None) -> int:
                     if items:
                         all_rows.extend(_flatten_instruments(items))
                         logger.info("instruments %s (%s): %d stocks", ex, market, len(items))
+                    else:
+                        failed_exchanges.add(ex)
+                        logger.warning("get_instruments(%s) returned empty", ex)
                 except Exception as e:
+                    failed_exchanges.add(ex)
                     logger.warning("get_instruments(%s) failed: %s", ex, e)
+    else:
+        # custom provider 全量返回：缺哪个市场就当哪个市场失败
+        got = {str(row.get("market") or "cn") for row in all_rows}
+        failed_markets = {m for m in markets if m not in got}
 
+    out = data_dir / "instruments" / "instruments.parquet"
     if not all_rows:
+        logger.warning("instruments sync: no rows fetched, existing table untouched")
         return 0
 
     df = pl.DataFrame(all_rows)
     df = df.with_columns(pl.lit(date.today()).alias("as_of"))
 
-    out = data_dir / "instruments" / "instruments.parquet"
+    # 部分失败按「交易所」粒度处理：丢掉失败交易所可能残缺的新行,
+    # 从旧表把该交易所的行原样保留, 成功交易所的新数据照常写入。
+    # 否则一次 503 就会像 2026-11-06 09:10 那样把整个深市维表抹掉,
+    # 进而污染 ST / 名称 / 流通股本, 连 E1 的横截面分位都会跟着漂。
+    scopes = [
+        (col, sorted(vals))
+        for col, vals in (("exchange", failed_exchanges), ("market", failed_markets))
+        if vals
+    ]
+    if scopes:
+        logger.warning("instruments sync partial failure %s; preserving old rows", scopes)
+        for col, vals in scopes:
+            if col in df.columns:
+                df = df.filter(~pl.col(col).is_in(vals))
+        if out.exists():
+            try:
+                old = pl.read_parquet(out)
+                parts = [
+                    old.filter(pl.col(col).is_in(vals))
+                    for col, vals in scopes
+                    if col in old.columns
+                ]
+                if parts:
+                    keep = parts[0] if len(parts) == 1 else pl.concat(parts, how="diagonal_relaxed")
+                    if "symbol" in keep.columns:
+                        keep = keep.unique(subset=["symbol"], keep="last", maintain_order=True)
+                    if keep.height:
+                        df = pl.concat([keep, df], how="diagonal_relaxed")
+                        logger.info("instruments preserved %d old rows", keep.height)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("instruments old table unreadable: %s", e)
+
+    if df.is_empty():
+        logger.warning("instruments sync: nothing safe to write, existing table untouched")
+        return 0
+    if "symbol" in df.columns:
+        df = df.unique(subset=["symbol"], keep="last", maintain_order=True)
+
     out.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out)
 

@@ -17,6 +17,7 @@ from app.api import (
     alerts,
     analysis,
     backtest,
+    beginner_picks,
     data,
     ext_data,
     financials,
@@ -99,6 +100,12 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("auth bootstrap failed: %s", e)
 
+    try:
+        from app.services import remote_store
+        remote_store.bootstrap()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("supabase bootstrap failed: %s", e)
+
     # 数据层
     store = DataStore()
     repo = KlineRepository(store)
@@ -158,7 +165,7 @@ async def _application_lifespan(app: FastAPI):
     depth_service.set_app_state(app.state)
     app.state.depth_service = depth_service
 
-    # 启动调度器(若 enriched 数据为空,首次启动可手动 POST /api/pipeline/run)
+    # 启动调度器。日 K 落后时 start_scheduler 会自动补跑盘后管道。
     try:
         daily_pipeline.set_app_state(app.state)  # 供 depth_finalize job 访问 depth_service
         scheduler = daily_pipeline.start_scheduler(repo, capset)
@@ -462,6 +469,7 @@ app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
 app.include_router(rps.router)
+app.include_router(beginner_picks.router)
 
 # 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。
 extension_registry, extension_load_errors = configure_backend_extensions(app)

@@ -1280,6 +1280,62 @@ class KlineRepository:
             return pl.DataFrame(), self._enriched_cache_date
         return self._enriched_cache, self._enriched_cache_date
 
+    def peek_recent_ohlc(self, n_dates: int = 2) -> tuple[pl.DataFrame, date | None]:
+        """读最近 N 个交易日分区 parquet，不跑 300 天指标。
+
+        给 get_enriched_latest 预热空窗用：自选页要昨收，今日名单要短窗口均线。
+        不写入 _enriched_cache，避免半成品覆盖完整指标缓存。
+        """
+        base = self.store.data_dir / "kline_daily_enriched"
+        if not base.exists():
+            return pl.DataFrame(), None
+        dates: list[date] = []
+        try:
+            import os
+            for name in os.listdir(base):
+                if not name.startswith("date="):
+                    continue
+                try:
+                    dates.append(date.fromisoformat(name[5:]))
+                except ValueError:
+                    continue
+        except OSError:
+            return pl.DataFrame(), None
+        if not dates:
+            return pl.DataFrame(), None
+        dates.sort()
+        use = dates[-max(1, int(n_dates)):]
+        frames: list[pl.DataFrame] = []
+        for day in use:
+            path = base / f"date={day.isoformat()}" / "part.parquet"
+            if not path.exists():
+                continue
+            try:
+                frames.append(pl.read_parquet(path))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("peek_recent_ohlc skip %s: %s", path, exc)
+        if not frames:
+            return pl.DataFrame(), None
+        df = pl.concat(frames, how="diagonal_relaxed") if len(frames) > 1 else frames[0]
+        return df, use[-1]
+
+    def peek_latest_ohlc(self) -> tuple[pl.DataFrame, date | None]:
+        """最新交易日 OHLC + 相对昨收涨跌幅。预热期间自选页用这个显示价格。"""
+        hist, latest = self.peek_recent_ohlc(2)
+        if hist.is_empty() or latest is None:
+            return pl.DataFrame(), latest
+        if "symbol" not in hist.columns or "close" not in hist.columns:
+            return pl.DataFrame(), latest
+        work = hist
+        if "date" in work.columns:
+            if work.schema.get("date") != pl.Date:
+                work = work.with_columns(pl.col("date").cast(pl.Date, strict=False))
+            work = work.sort(["symbol", "date"]).with_columns(
+                (pl.col("close") / pl.col("close").shift(1).over("symbol") - 1).alias("change_pct"),
+            )
+            work = work.filter(pl.col("date") == latest)
+        return work, latest
+
     def get_enriched_latest_asset(self, asset_type: str, refresh: bool = True) -> tuple[pl.DataFrame, date | None]:
         """按资产类型返回最新 enriched 缓存。stock 保持旧缓存语义。
 
@@ -1613,10 +1669,17 @@ class KlineRepository:
         columns: list[str] | None = None,
     ) -> pl.DataFrame:
         """批量日K查询。"""
+        # 缓存只含 cache_date 当天, 跨天区间必须扫 parquet.
+        # 曾因这里用 start >= cache_date 放行, 复盘账本取次日 K 线时
+        # 拿到陈旧的单日数据, 导致次日收盘价永远结算不出来.
         cached, cache_date = self.get_enriched_latest()
-        if cached is not None and not cached.is_empty() and cache_date:
-            if start >= cache_date:
-                return self._filter_cached_batch(cached, symbols, columns)
+        if (
+            cached is not None
+            and not cached.is_empty()
+            and cache_date
+            and start == end == cache_date
+        ):
+            return self._filter_cached_batch(cached, symbols, columns)
 
         # 回退 scan_parquet
         return self._scan_daily_batch(symbols, start, end, columns)
