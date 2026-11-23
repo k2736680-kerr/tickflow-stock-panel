@@ -1603,6 +1603,15 @@ export interface BeginnerPicksResponse {
       path: string
       ledger: string
       note: string
+      replay?: {
+        computed_on: string
+        sample_start: string
+        sample_end: string
+        bought: number
+        same_day_close_up: number
+        same_day_high_plus_1pct: number
+        sellable_plus_5pct_20d: number
+      }
     }
     rise_causes: { cause: string; result: string; use: 'keep' | 'drop' }[]
     what_we_kept: string[]
@@ -1630,6 +1639,7 @@ export interface BeginnerLiveReviewPick {
   next_close_vs_signal?: number | null
   next_close_vs_buy?: number | null
   correct_next_close?: boolean | null
+  rose_after_buy?: boolean | null
   skipped_gap?: boolean
   status?: string
   tp_hit?: boolean | null
@@ -1657,6 +1667,8 @@ export interface BeginnerLiveReview {
     picks_settled: number
     next_close_win: number
     next_close_win_rate: number | null
+    rose_after_buy_n?: number
+    rose_after_buy_win?: number
     auto_tune: boolean
     note: string
     rule_change?: {

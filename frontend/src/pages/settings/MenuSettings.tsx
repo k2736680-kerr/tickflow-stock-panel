@@ -32,8 +32,8 @@ interface NavEntry {
 }
 
 const BUILTIN_PAGES: NavEntry[] = [
-  { id: '/picks', label: '今日', type: 'builtin', visible: true },
-  { id: '/', label: '看板', type: 'builtin', visible: true },
+  { id: '/', label: '今日', type: 'builtin', visible: true },
+  { id: '/market', label: '看板', type: 'builtin', visible: true },
   { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
   { id: '/screener', label: '策略', type: 'builtin', visible: true },
   { id: '/backtest', label: '回测', type: 'builtin', visible: true },
@@ -294,7 +294,7 @@ export function SettingsMenuSettingsPanel() {
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
           拖动左侧手柄调整菜单排列顺序，点击眼睛图标控制菜单在侧边栏中的显示或隐藏。
-          新手界面只保留看板、自选、策略、个股分析和数据，避免把回测/挖掘误当成下单工具。
+          新手界面保留首页今日名单、看板、自选、策略、个股分析和数据。首页用来看买哪只，看板是市场总览。
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button

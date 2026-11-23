@@ -78,8 +78,8 @@ const CORE_INDEXES = [
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
 const nav = [
-  { to: '/picks',      label: '今日',     icon: Sparkles },
-  { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/',           label: '今日',     icon: Sparkles },
+  { to: '/market',     label: '看板',     icon: LayoutDashboard },
   { to: '/watchlist',  label: '自选',   icon: Star },
   { to: '/screener',   label: '策略',   icon: ScanSearch },
   { to: '/backtest',   label: '回测', icon: History },
@@ -651,6 +651,7 @@ export function Layout() {
                   /* 普通菜单项 */
                   <NavLink
                     to={to}
+                    end={to === '/'}
                     title={navCollapsed ? label : undefined}
                     className={({ isActive }) =>
                       cn(

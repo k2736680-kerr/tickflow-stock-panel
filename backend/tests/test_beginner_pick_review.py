@@ -60,6 +60,7 @@ def test_next_close_up_counts_as_correct(tmp_path: Path):
     log = settle_log(_Repo(bars, date(2026, 11, 4)), data_dir)
     pick = log["sessions"][0]["picks"][0]
     assert pick["correct_next_close"] is True
+    assert pick["rose_after_buy"] is True
     assert pick["next_close_vs_signal"] == 0.02
     assert log["sessions"][0]["next_close_win"] == 1
     stats = summarize(log)
@@ -229,6 +230,29 @@ def test_readonly_ledger_does_not_create_db(tmp_path: Path):
     log = load_log_readonly(tmp_path)
     assert log["sessions"] == []
     assert not (tmp_path / "user_data" / "tickflow.db").exists()
+
+
+def test_close_above_signal_can_still_be_down_from_the_open(tmp_path: Path):
+    data_dir = tmp_path
+    archive_payload(
+        _payload("2026-11-02", [{"symbol": "600001.SH", "name": "测试", "close": 10.0}]),
+        data_dir,
+    )
+    bars = pl.DataFrame({
+        "symbol": ["600001.SH"],
+        "date": [date(2026, 11, 3)],
+        "open": [10.10],
+        "high": [10.12],
+        "close": [10.05],
+    })
+    log = settle_log(_Repo(bars, date(2026, 11, 3)), data_dir)
+    pick = log["sessions"][0]["picks"][0]
+    assert pick["skipped_gap"] is False
+    assert pick["correct_next_close"] is True
+    assert pick["rose_after_buy"] is False
+    stats = summarize(log)
+    assert stats["rose_after_buy_n"] == 1
+    assert stats["rose_after_buy_win"] == 0
 
 
 def test_rule_change_gate_opens_at_40_days_without_tuning():

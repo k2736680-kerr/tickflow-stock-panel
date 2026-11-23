@@ -45,8 +45,8 @@ export function BeginnerPicks() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
-        title="今日"
-        subtitle={data?.signal_note || (data?.as_of ? `数据截止 ${data.as_of}` : '每天给名单，第 5 个交易日复盘')}
+        title="今日名单"
+        subtitle={data?.as_of ? `${data.as_of} 收盘` : '等待收盘数据'}
         right={
           <button
             type="button"
@@ -94,176 +94,146 @@ function PicksBody({
   adding: boolean
 }) {
   const closed = data.verdict === 'closed'
-  const open = data.verdict === 'open'
+  const pick = data.verdict === 'open' ? data.picks[0] : undefined
+  const gap = ((data.open_gap_skip ?? 0.015) * 100).toFixed(1)
+  const take = ((data.take_profit ?? 0.05) * 100).toFixed(0)
+  const title = closed ? '先去同步数据' : pick ? '明天开盘买' : '今天空仓'
+  const reason = closed
+    ? '日 K 还没准备好，名单出不来。'
+    : pick
+      ? `只买这一只。开盘涨超 ${gap}% 就放弃。`
+      : data.pick_mode === 'e1_skip_regime'
+        ? '沪深300 不在弱势或恐慌。这天不做。'
+        : '没有回撤落在 30% 到 50%、成交额靠后、还在放量的主板票。'
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4">
+    <div className="mx-auto flex max-w-3xl flex-col gap-5">
       <section
         className={cn(
-          'rounded-card border px-5 py-4',
+          'rounded-card border px-6 py-6',
           closed && 'border-warning/40 bg-warning/[0.06]',
-          open && 'border-accent/30 bg-accent/[0.06]',
-          data.verdict === 'no_candidates' && 'border-border bg-elevated/40',
+          pick && 'border-accent/40 bg-accent/[0.06]',
+          !closed && !pick && 'border-border bg-elevated/40',
         )}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           {closed ? (
-            <ShieldOff className="mt-0.5 h-7 w-7 shrink-0 text-warning" />
-          ) : open ? (
-            <Sparkles className="mt-0.5 h-7 w-7 shrink-0 text-accent" />
+            <ShieldOff className="h-8 w-8 shrink-0 text-warning" />
+          ) : pick ? (
+            <Sparkles className="h-8 w-8 shrink-0 text-accent" />
           ) : (
-            <AlertTriangle className="mt-0.5 h-7 w-7 shrink-0 text-muted" />
+            <AlertTriangle className="h-8 w-8 shrink-0 text-muted" />
           )}
-          <div className="min-w-0">
-            <h2 className="text-2xl font-semibold tracking-tight text-foreground">{data.headline}</h2>
-            <p className="mt-1 text-sm leading-relaxed text-secondary">
-              {closed
-                ? '日 K 还没准备好，先去「数据」页同步。'
-                : open
-                  ? `下面 ${data.picks.length} 只是深跌抄底。下一交易日开盘买；开盘涨超 ${((data.open_gap_skip ?? 0.015) * 100).toFixed(1)}% 不追。盘中碰到 +${(((data.take_profit ?? 0.05) * 100).toFixed(0))}% 就卖，否则最多拿 ${data.hold_trading_days} 日。`
-                  : data.pick_mode === 'e1_skip_regime'
-                    ? '沪深300现在不弱。这套规则只在弱势或恐慌做。今日空仓。'
-                    : '今天没有落入规则的票，名单空了。'}
-            </p>
-          </div>
+          <h2 className="text-3xl font-semibold tracking-tight text-foreground">{title}</h2>
         </div>
+        <p className="mt-3 text-base leading-relaxed text-secondary">{reason}</p>
       </section>
 
-      <section className="grid gap-2 sm:grid-cols-3">
+      {pick && (
+        <PickCard
+          row={pick}
+          onPreview={() => onPreview({ symbol: pick.symbol, name: pick.name })}
+          onAdd={() => onAdd(pick.symbol)}
+          adding={adding}
+        />
+      )}
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <Step n="1" title="怎么买" text={pick ? `下一交易日开盘买。涨超 ${gap}% 不买。` : '今天不买。'} />
+        <Step n="2" title="当天" text="买入当天卖不掉。" />
+        <Step n="3" title="怎么卖" text={`下一天起，碰到买入价 +${take}% 就卖。最晚第 ${data.hold_trading_days} 个可卖日收盘卖。`} />
+      </section>
+
+      <section className="grid gap-2 sm:grid-cols-2">
         {data.gates.map(gate => (
-          <div key={gate.id} className="rounded-card border border-border bg-elevated/30 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+          <div key={gate.id} className="rounded-card border border-border px-3 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               {gate.ok ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-bull" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-bull" />
               ) : (
-                <XCircle className="h-3.5 w-3.5 text-bear" />
+                <XCircle className="h-4 w-4 shrink-0 text-bear" />
               )}
               {gate.label}
-              {!gate.hard && <span className="text-[10px] text-muted">参考</span>}
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-secondary">{gate.detail}</p>
+            <p className="mt-1 pl-6 text-sm leading-relaxed text-secondary">{gate.detail}</p>
           </div>
         ))}
       </section>
 
-      {open && data.picks.length > 0 && (
-        <section className="flex flex-col gap-2">
-          {data.picks.map(row => (
-            <PickCard
-              key={row.symbol}
-              row={row}
-              onPreview={() => onPreview({ symbol: row.symbol, name: row.name })}
-              onAdd={() => onAdd(row.symbol)}
-              adding={adding}
-            />
-          ))}
-        </section>
-      )}
-
       {data.live_review && <LiveReviewCard review={data.live_review} />}
 
-      <section className="rounded-card border border-warning/30 bg-warning/[0.04] px-4 py-3">
-        <h3 className="text-xs font-semibold text-foreground">这套规则怎么来的</h3>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-secondary">{data.honesty.why_not_next_day}</p>
-        {data.honesty.evidence && (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-            回放记录区间 {data.honesty.evidence.sample_start}～{data.honesty.evidence.sample_end}。
-            数字在 {data.honesty.evidence.path}，实盘以本页账本为准。
-          </p>
-        )}
-      </section>
+      <details className="rounded-card border border-border px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">这套规则怎么来的</summary>
+        <div className="mt-3 space-y-3 text-sm leading-relaxed text-secondary">
+          <p>{data.honesty.why_not_next_day}</p>
+          <p>{data.honesty.headline} {data.honesty.historical_note}</p>
+          <p>{data.honesty.live_note}</p>
+          {data.honesty.evidence?.replay && (
+            <p className="text-muted">
+              {data.honesty.evidence.replay.sample_start}～{data.honesty.evidence.replay.sample_end}
+              ，买进 {data.honesty.evidence.replay.bought} 笔。当天收盘高于开盘 {(data.honesty.evidence.replay.same_day_close_up * 100).toFixed(0)}%。
+              可卖日 20 天内摸到 +5% 的占 {(data.honesty.evidence.replay.sellable_plus_5pct_20d * 100).toFixed(0)}%。后半段更低，不是下一笔的保证。
+            </p>
+          )}
+          <p className="text-muted">{data.overlays.note}</p>
+          <Link to="/data" className="inline-block text-accent hover:underline">数据不够？去「数据」页同步日 K</Link>
+        </div>
+      </details>
+    </div>
+  )
+}
 
-      <section className="rounded-card border border-border px-4 py-3">
-        <h3 className="text-xs font-semibold text-foreground">已经拆过的上涨原因</h3>
-        <p className="mt-1 text-[11px] text-muted">
-          看涨过的票倒推原因，会把「已经涨完」当成「明天还会涨」。下面是你们自己数据里测过的结果。
-        </p>
-        <ul className="mt-2 space-y-2">
-          {data.honesty.rise_causes.map(item => (
-            <li key={item.cause} className="text-[12px] leading-relaxed">
-              <div className="flex items-start gap-1.5">
-                <span className={item.use === 'keep' ? 'text-bull' : 'text-muted'}>
-                  {item.use === 'keep' ? '用' : '不用'}
-                </span>
-                <span>
-                  <span className="text-foreground">{item.cause}</span>
-                  <span className="mt-0.5 block text-secondary">{item.result}</span>
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="rounded-card border border-border px-4 py-3">
-        <h3 className="text-xs font-semibold text-foreground">{data.honesty.headline}</h3>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-secondary">{data.honesty.historical_note}</p>
-        <p className="mt-1 text-[12px] leading-relaxed text-secondary">{data.honesty.live_note}</p>
-        <ol className="mt-3 list-decimal space-y-1 pl-4 text-[12px] text-secondary">
-          {data.how_to_use.map(item => (
-            <li key={item}>{item}</li>
-          ))}
-        </ol>
-        <p className="mt-3 text-[11px] text-muted">{data.overlays.note}</p>
-        <Link to="/data" className="mt-2 inline-block text-[11px] text-accent hover:underline">
-          数据不够？去「数据」页同步日 K
-        </Link>
-      </section>
+function Step({ n, title, text }: { n: string; title: string; text: string }) {
+  return (
+    <div className="rounded-card border border-border bg-elevated/20 px-4 py-3">
+      <div className="text-xs text-muted">{n}</div>
+      <div className="mt-1 text-sm font-semibold text-foreground">{title}</div>
+      <p className="mt-1 text-sm leading-relaxed text-secondary">{text}</p>
     </div>
   )
 }
 
 function LiveReviewCard({ review }: { review: BeginnerLiveReview }) {
-  const rate = review.stats.next_close_win_rate
-  const sessions = review.sessions.filter(s => (s.picks && s.picks.length > 0) || s.pick_mode === 'e1_skip_regime').slice(0, 8)
+  const sessions = review.sessions.filter(s => (s.picks && s.picks.length > 0) || s.pick_mode === 'e1_skip_regime').slice(0, 5)
+  const bought = review.stats.rose_after_buy_n ?? 0
+  const rose = review.stats.rose_after_buy_win ?? 0
   return (
-    <section className="rounded-card border border-accent/30 bg-accent/[0.04] px-4 py-3">
-      <h3 className="text-xs font-semibold text-foreground">实盘复盘账本（不改规则）</h3>
-      <p className="mt-1.5 text-[12px] leading-relaxed text-secondary">
-        {review.stats.picks_settled > 0
-          ? `已对照 ${review.stats.picks_settled} 只：次日收盘上涨 ${review.stats.next_close_win} 只${rate == null ? '' : `，${(rate * 100).toFixed(0)}%`}。`
-          : '名单会先记下来。下一交易日收盘数据到了，会自动对比涨跌。'}
-        {review.stats.empty_days > 0 ? ` 空仓 ${review.stats.empty_days} 天。` : ''}
+    <section className="rounded-card border border-border px-4 py-4">
+      <h3 className="text-sm font-semibold text-foreground">最近账本</h3>
+      <p className="mt-1 text-sm text-secondary">
+        {bought > 0
+          ? `已买 ${bought} 只，当天收盘高于开盘 ${rose} 只。`
+          : '名单先记下来。下一交易日收盘后，才知道买后有没有收红、后来有没有摸到 +5%。'}
       </p>
-      <p className="mt-1 text-[11px] text-muted">{review.stats.rule_change?.note ?? review.stats.note}</p>
       {sessions.length > 0 && (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 divide-y divide-border">
           {sessions.map(session => (
-            <li key={session.as_of} className="rounded-btn border border-border/70 bg-background/40 px-3 py-2">
-              <div className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
-                <span className="font-medium text-foreground">{session.as_of} 推荐</span>
-                {session.buy_date && <span className="text-muted">次日 {session.buy_date}</span>}
+            <li key={session.as_of} className="py-2 text-sm">
+              <div className="flex flex-wrap gap-x-3">
+                <span className="font-medium text-foreground">{session.as_of}</span>
                 {session.pick_mode === 'e1_skip_regime' ? (
                   <span className="text-secondary">空仓</span>
-                ) : session.settled ? (
-                  <span className="text-secondary">
-                    次日收盘对 {(session.next_close_win ?? 0)}/{session.next_close_n ?? 0}
-                  </span>
                 ) : (
-                  <span className="text-muted">等下一交易日收盘</span>
+                  <span className="text-muted">{session.buy_date ? `次日 ${session.buy_date}` : '等收盘'}</span>
                 )}
               </div>
               {session.picks.length > 0 && (
-                <ul className="mt-1.5 space-y-0.5 text-[12px]">
+                <div className="mt-1 text-secondary">
                   {session.picks.map(pick => (
-                    <li key={pick.symbol} className="flex flex-wrap items-baseline gap-x-2">
+                    <span key={pick.symbol} className="mr-3 inline-flex items-baseline gap-1">
                       <span className="text-foreground">{pick.name}</span>
-                      <span className="font-mono text-muted">{fmtPrice(pick.signal_close)}</span>
-                      {pick.correct_next_close == null ? (
+                      {pick.skipped_gap ? (
+                        <span className="text-warning">高开不买</span>
+                      ) : pick.rose_after_buy == null ? (
                         <span className="text-muted">待收盘</span>
                       ) : (
-                        <>
-                          <span className={cn('font-mono', priceColorClass(pick.next_close_vs_signal))}>
-                            {fmtPct(pick.next_close_vs_signal)}
-                          </span>
-                          <span className={pick.correct_next_close ? 'text-bull' : 'text-bear'}>
-                            {pick.correct_next_close ? '对' : '错'}
-                          </span>
-                        </>
+                        <span className={pick.rose_after_buy ? 'text-bull' : 'text-bear'}>
+                          {pick.rose_after_buy ? '收红' : '收绿'} {fmtPct(pick.next_close_vs_buy)}
+                        </span>
                       )}
-                      {pick.skipped_gap && <span className="text-warning">开盘涨超不追</span>}
-                    </li>
+                      {pick.tp_hit === true && <span className="text-bull">+5%</span>}
+                    </span>
                   ))}
-                </ul>
+                </div>
               )}
             </li>
           ))}
@@ -285,36 +255,27 @@ function PickCard({
   adding: boolean
 }) {
   return (
-    <article className="rounded-card border border-border bg-elevated/20 px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <article className="rounded-card border border-border bg-elevated/20 px-6 py-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <button type="button" onClick={onPreview} className="min-w-0 text-left">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-foreground">{row.name}</span>
-            <span className="font-mono text-[11px] text-muted">{row.symbol}</span>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
+          <div className="text-3xl font-semibold text-foreground">{row.name}</div>
+          <div className="mt-1 font-mono text-sm text-muted">{row.symbol}</div>
+          <div className="mt-3 flex flex-wrap gap-x-4 text-base">
             <span className="font-mono text-foreground">昨收 {fmtPrice(row.close)}</span>
             <span className={cn('font-mono', priceColorClass(row.change_pct))}>{fmtPct(row.change_pct)}</span>
-            <span className="text-secondary">20日 {fmtPct(row.momentum_20d)}</span>
             {row.vol_ratio_5d != null && <span className="text-secondary">量比 {row.vol_ratio_5d.toFixed(2)}</span>}
-            {row.mktcap_yi != null && <span className="text-secondary">{row.mktcap_yi.toFixed(0)} 亿</span>}
           </div>
         </button>
         <button
           type="button"
           onClick={onAdd}
           disabled={adding}
-          className="inline-flex items-center gap-1 rounded-btn border border-border px-2 py-1 text-[11px] text-secondary hover:bg-elevated hover:text-foreground disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-btn border border-border px-3 py-2 text-sm text-secondary hover:bg-elevated hover:text-foreground disabled:opacity-50"
         >
-          <Star className="h-3 w-3" />
+          <Star className="h-4 w-4" />
           加入自选
         </button>
       </div>
-      <ul className="mt-2 space-y-0.5 text-[12px] text-secondary">
-        {row.reasons.map(reason => (
-          <li key={reason}>· {reason}</li>
-        ))}
-      </ul>
     </article>
   )
 }

@@ -42,6 +42,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/onboarding',
   '/login',
   '/picks',
+  '/market',
   '/overview',
   '/analysis',
   '/analysis/:menuId',
@@ -104,7 +105,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 }
 
 function HomeRoute() {
-  return <Dashboard />
+  return <BeginnerPicks />
 }
 
 export const router = createBrowserRouter([
@@ -120,7 +121,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomeRoute /> },
       { path: 'picks', element: <BeginnerPicks /> },
-      { path: 'overview', element: <Navigate to="/" replace /> },
+      { path: 'market', element: <Dashboard /> },
+      { path: 'overview', element: <Navigate to="/market" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=ext-pages" replace /> },
       { path: 'analysis/:menuId', element: <AnalysisDetail /> },
       { path: 'concept-analysis', element: <ConceptAnalysis /> },

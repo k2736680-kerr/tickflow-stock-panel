@@ -319,6 +319,7 @@ def _settle_pick(
     if buy_open and next_close and buy_open > 0:
         vs_buy = next_close / buy_open - 1.0
     pick["next_close_vs_buy"] = _round(vs_buy, 4)
+    pick["rose_after_buy"] = None if skipped or vs_buy is None else vs_buy > 0
     if skipped:
         pick["status"] = "skipped_gap"
         return pick
@@ -445,6 +446,18 @@ def summarize(log: dict[str, Any]) -> dict[str, Any]:
     win = sum(int(s.get("next_close_win") or 0) for s in settled)
     n = sum(int(s.get("next_close_n") or 0) for s in settled)
     empty_days = sum(1 for s in sessions if s.get("pick_mode") == "e1_skip_regime")
+    rose_n = 0
+    rose_win = 0
+    for session in sessions:
+        for pick in session.get("picks") or []:
+            if not isinstance(pick, dict) or pick.get("skipped_gap"):
+                continue
+            flag = pick.get("rose_after_buy")
+            if flag is None:
+                continue
+            rose_n += 1
+            if flag:
+                rose_win += 1
     rate = (win / n) if n else None
     settled_days = len(settled)
     ready = settled_days >= RULE_CHANGE_MIN_SETTLED_DAYS
@@ -463,6 +476,8 @@ def summarize(log: dict[str, Any]) -> dict[str, Any]:
         "picks_settled": n,
         "next_close_win": win,
         "next_close_win_rate": _round(rate, 4),
+        "rose_after_buy_n": rose_n,
+        "rose_after_buy_win": rose_win,
         "auto_tune": False,
         "rule_change": {
             "min_settled_days": RULE_CHANGE_MIN_SETTLED_DAYS,
@@ -712,19 +727,35 @@ def save_snapshot_if_absent(data_dir: Path, payload: dict[str, Any]) -> bool:
     return written
 
 
-def pin_or_restore(data_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    """信号日名单定版：首次写入，之后一律用定版结果覆盖实时重算。
+_DISPLAY_KEYS = (
+    "signal_note",
+    "honesty",
+    "how_to_use",
+    "hold_trading_days",
+    "review_trading_days",
+    "open_gap_skip",
+    "take_profit",
+    "index_symbol",
+    "overlays",
+)
 
-    E1 的 amt_q 是全市场横截面分位，维表/缓存一变名单就会漂，
-    同一 as_of 隔夜能从 2 只变 1 只。定版后页面与账本都以首次结果为准；
-    live_review 由 settle_log 实时生成，不受影响。
+
+def pin_or_restore(data_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Pin the signal-day list once. Later reads keep those picks.
+
+    amt_q is a same-day cross-section rank, so a later refresh can change
+    who is on the list. Buy instructions stay on the current code so the
+    homepage does not keep an old sentence from the first snapshot.
     """
     with _LOCK:
         snap = load_snapshot(data_dir, payload.get("as_of"))
         if snap is None:
             save_snapshot_if_absent(data_dir, payload)
         else:
+            display = {key: payload[key] for key in _DISPLAY_KEYS if key in payload}
             payload.update(snap)
+            payload.update(display)
+            payload.pop("live_review", None)
         return payload
 
 

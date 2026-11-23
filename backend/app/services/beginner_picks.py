@@ -23,12 +23,13 @@ INDEX_SYMBOL = "000001.SH"
 CSI300_SYMBOL = "000300.SH"
 HOLD_TRADING_DAYS = 20
 REVIEW_TRADING_DAYS = 20
-TOP_N = 6
+TOP_N = 1
 MIN_UNIVERSE = 200
 MIN_PRICE = 3.0
 MAX_PRICE = 26.99
 TAKE_PROFIT = 0.05
 DD60_MAX = -0.30
+DD60_FLOOR = -0.50
 AMT_Q_MAX = 20.0
 VOLR_MIN = 1.5
 DND20_MAX = 1
@@ -44,7 +45,16 @@ EVIDENCE_REF = {
     "sample_end": "2026-09-28",
     "path": "docs/e1-evidence.md",
     "ledger": "data/user_data/tickflow.db",
-    "note": "历史回放数字只写在证据记录里。页面不内嵌胜率。实盘以复盘账本为准。",
+    "note": "买入当天收盘高于开盘不是高命中口径。能卖掉的高命中，是可卖日起 20 日内摸到买入价 +5%。",
+    "replay": {
+        "computed_on": "2026-11-07",
+        "sample_start": "2026-02-11",
+        "sample_end": "2026-09-28",
+        "bought": 164,
+        "same_day_close_up": 0.585,
+        "same_day_high_plus_1pct": 0.774,
+        "sellable_plus_5pct_20d": 0.817,
+    },
 }
 
 # trading-agent H11：强负面无条件否决；其余硬负面若命中披露附件体裁则降级。
@@ -68,10 +78,11 @@ HONESTY = {
     "headline": "高胜率来自止盈规则，不是 90% 明天上涨。",
     "why_not_next_day": (
         "今日名单只接 E1 深跌抄底。"
-        "条件：距 60 日高点回撤 ≥30%，成交额分位后 20%，价格 3～26.99 元，量比 ≥1.5，主板非 ST。"
+        "条件：距 60 日高点回撤 30%～50%，成交额分位后 20%，价格 3～26.99 元，量比 ≥1.5，主板非 ST。"
         "只在沪深300相对 60 日线处于弱势或恐慌时做（偏离 ≤−1%）。震荡和强势空仓。"
-        "买法：次日开盘买，盘中碰到 +5% 就卖，碰不到最多拿 20 个交易日，中途不加仓、不设固定止损。"
-        "持有期内碰到 +5% 的比例不是明天收盘就涨。样本区间见证据记录，胜率不写在这里。"
+        "买法：次日开盘买。开盘已经涨超 1.5% 不追。买入当天卖不掉。"
+        "从买入后的下一交易日挂 +5%，碰到就卖，碰不到最多拿 20 个交易日。"
+        "买入当天收盘高于开盘不是这套规则的高命中。数字见证据记录里的重放。"
     ),
     "historical_note": (
         "拐头硬凑每天有名单、主线补涨、强势时照样抄底，都已经停用。"
@@ -87,8 +98,8 @@ HONESTY = {
     "evidence": EVIDENCE_REF,
     "rise_causes": [
         {
-            "cause": "E1 深跌抄底：回撤≥30% + 成交额后20% + 只在沪深300弱势/恐慌做 + 盘中+5%止盈",
-            "result": "保留。样本和回放结论见证据记录，页面不重复胜率。",
+            "cause": "E1 深跌抄底：回撤 30%～50% + 成交额后20% + 只在沪深300弱势/恐慌做 + 可卖日起 +5%止盈",
+            "result": "保留。买入当天收盘必红不是这套口径。",
             "use": "keep",
         },
         {
@@ -121,7 +132,7 @@ HONESTY = {
         "E1 深跌 + 成交额后 20% + 价格上限 26.99",
         "只在沪深300弱势/恐慌出票，强势空仓",
         "盘中 +5% 止盈，最多 20 日，不设固定止损",
-        "硬负面否决，等权最多 6 只",
+        "硬负面否决，每天最多 1 只",
     ],
     "what_we_dropped": [
         "每天硬凑拐头或主线补涨（约 50%）",
@@ -395,8 +406,8 @@ def build_payload(
     if as_of:
         signal_note = (
             f"按 {as_of.isoformat()} 收盘选出 · 下一交易日开盘买（涨超 "
-            f"{OPEN_GAP_SKIP * 100:.1f}% 不追）· 盘中碰到 +{TAKE_PROFIT * 100:.0f}% 就卖，"
-            f"否则最多拿 {HOLD_TRADING_DAYS} 日"
+            f"{OPEN_GAP_SKIP * 100:.1f}% 不追）· 买入当天卖不掉 · 下一天起挂 "
+            f"+{TAKE_PROFIT * 100:.0f}%，否则最多 {HOLD_TRADING_DAYS} 日"
         )
     else:
         signal_note = "还没有信号日"
@@ -420,10 +431,10 @@ def build_payload(
         "overlays": overlays.as_dict(),
         "honesty": HONESTY,
         "how_to_use": [
-            "只买名单里的票，等权最多 6 只，先加自选。",
+            "只买名单里的这一只。没有名单就空仓。",
             "沪深300不弱（震荡/强势）时名单会空：今日空仓，不要回头去买拐头或补涨凑数。",
             f"次日开盘买。开盘已经涨超 {OPEN_GAP_SKIP * 100:.1f}% 的不要追。",
-            f"买入后挂 +{TAKE_PROFIT * 100:.0f}% 止盈；盘中碰到就走。碰不到就拿到第 {HOLD_TRADING_DAYS} 个交易日，中途不加仓、不设固定止损。",
+            f"买入当天卖不掉。从下一交易日挂 +{TAKE_PROFIT * 100:.0f}% 止盈，碰到就走。碰不到就拿到第 {HOLD_TRADING_DAYS} 个交易日，中途不加仓、不设固定止损。",
             "出现立案调查 / 退市 / 监管函，立刻拿掉。",
         ],
     }
@@ -538,7 +549,7 @@ def _overlay_note(ann_n: int, bb_n: int) -> str:
     if ann_n:
         parts.append(f"公告库 {ann_n} 条 (H11 否决)")
     if bb_n:
-        parts.append(f"回购清单 {bb_n} 条 (加分)")
+        parts.append(f"回购清单 {bb_n} 条 (只记录，不进名单)")
     if not parts:
         return "未导入外部研究库，仅用本机行情。删除源目录前请确认 data/imported 已拷贝。"
     return "已接入：" + "，".join(parts) + "。源目录里那十几万缓存文件没有拷贝，也不需要。"
@@ -680,7 +691,7 @@ def select_e1_snipers(
         if dnd20 is not None and dnd20 > DND20_MAX:
             continue
         dd60 = _num(rec.get("dd60"))
-        if dd60 is None or dd60 > DD60_MAX:
+        if dd60 is None or dd60 > DD60_MAX or dd60 <= DD60_FLOOR:
             continue
         funnel["dd60"] += 1
         amt_q = _num(rec.get("amt_q"))
@@ -702,8 +713,8 @@ def select_e1_snipers(
             f"距 60 日高点 {dd60 * 100:.1f}%（深跌还没修完）",
             f"成交额分位 {amt_q:.0f}（后 20%，不是热门额）",
             f"量比 {vol:.2f}（已经开始放量）",
-            f"盘中碰到 +{TAKE_PROFIT * 100:.0f}% 就卖，否则最多拿 {HOLD_TRADING_DAYS} 日",
-            f"次日开盘涨超 {OPEN_GAP_SKIP * 100:.1f}% 不买",
+            f"次日开盘买，涨超 {OPEN_GAP_SKIP * 100:.1f}% 不追",
+            f"买入当天卖不掉。下一天起挂 +{TAKE_PROFIT * 100:.0f}%，否则最多 {HOLD_TRADING_DAYS} 日",
         ]
         scored.append((key, Pick(
             symbol=symbol,
@@ -713,12 +724,13 @@ def select_e1_snipers(
             momentum_20d=r20,
             vol_ratio_5d=vol,
             mktcap_yi=_mktcap_yi(close, _num(rec.get("float_shares"))),
-            score=-key,
+            score=key,
             reasons=reasons,
             dd60=dd60,
             amt_q=amt_q,
         )))
-    scored.sort(key=lambda item: item[0])
+    # 回撤更接近 30% 的排前面。后半段里只留这一只，比按跌得最深排前 6 更准。
+    scored.sort(key=lambda item: item[0], reverse=True)
     picks = [item[1] for item in scored[:top_n]]
     funnel["e1_picks"] = len(picks)
     return picks, funnel

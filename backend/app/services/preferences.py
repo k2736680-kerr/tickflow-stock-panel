@@ -964,7 +964,7 @@ def set_nav_order(order: list[str]) -> list[str]:
 
 # 新手界面默认隐藏的侧栏页面。与 frontend/src/lib/beginnerNav.ts 保持一致。
 # 保留看板 / 自选 / 策略 / 个股分析 / 数据，避免把研究页误当成交易终端。
-# 与 frontend/src/lib/beginnerNav.ts 保持一致。今日(/picks)必须可见。
+# 与 frontend/src/lib/beginnerNav.ts 保持一致。今日(/)必须可见。
 BEGINNER_NAV_HIDDEN: list[str] = [
     "/backtest",
     "/mining",

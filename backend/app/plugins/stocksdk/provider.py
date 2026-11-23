@@ -46,6 +46,31 @@ def _yyyymmdd(dt: datetime | None) -> str | None:
     return dt.strftime("%Y%m%d") if dt else None
 
 
+def _normalize_realtime_row(row: dict) -> dict:
+    """把 stock-sdk 实时行收到面板口径: change_pct 用小数制。
+
+    stock-sdk 的 changePercent 实测是百分数(7.06=7.06%)。优先用
+    last_price/prev_close 重算; 否则仅当 |change_pct|>1 时按百分数 /100。
+    """
+    out = dict(row)
+    last = out.get("last_price")
+    prev = out.get("prev_close")
+    try:
+        if last is not None and prev not in (None, 0):
+            out["change_pct"] = float(last) / float(prev) - 1.0
+            return out
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    raw = out.get("change_pct")
+    try:
+        pct = float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        pct = None
+    if pct is not None and abs(pct) > 1.0:
+        out["change_pct"] = pct / 100.0
+    return out
+
+
 class StockSDKProvider:
     """内置 stock-sdk 数据源。"""
 
@@ -203,7 +228,8 @@ class StockSDKProvider:
         except bridge.StockSDKBridgeError as e:
             logger.warning("stock-sdk realtime 拉取失败: %s", e)
             return []
-        return result.get("rows") or []
+        # stock-sdk 的 changePercent 是百分数(7.06=7.06%), 面板/enriched 统一要小数(0.0706)。
+        return [_normalize_realtime_row(row) for row in (result.get("rows") or [])]
 
     # ---- instruments (标的维表) ----
     def get_instruments(self, asset_type: str = "stock") -> list[dict]:

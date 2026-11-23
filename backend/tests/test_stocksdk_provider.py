@@ -11,6 +11,7 @@ import shutil
 import subprocess
 
 import polars as pl
+import pytest
 
 from app.plugins.stocksdk import bridge
 from app.plugins.stocksdk import provider as sp
@@ -80,14 +81,25 @@ def test_get_minute_datetime_is_beijing_wall_clock(monkeypatch):
     assert df["symbol"][0] == "600519.SH"
 
 
-def test_get_realtime_passthrough(monkeypatch):
+def test_get_realtime_normalizes_change_pct_to_fraction(monkeypatch):
+    # stock-sdk 给的是百分数 0.50(=0.50%), 面板要小数 1200/1194-1
     rows = [{"symbol": "600519.SH", "name": "贵州茅台", "last_price": 1200.0,
-             "prev_close": 1194.0, "open": 1186.0, "high": 1203.0, "low": 1180.0, "volume": 16325}]
+             "prev_close": 1194.0, "open": 1186.0, "high": 1203.0, "low": 1180.0,
+             "volume": 16325, "change_pct": 0.50}]
     _patch_run_job(monkeypatch, {"realtime": {"ok": True, "op": "realtime", "rows": rows}})
     out = StockSDKProvider().get_realtime()
-    assert out == rows
+    assert len(out) == 1
+    assert out[0]["symbol"] == "600519.SH"
+    assert out[0]["change_pct"] == pytest.approx(1200.0 / 1194.0 - 1.0)
     required = {"symbol", "last_price", "prev_close", "open", "high", "low", "volume"}
     assert required <= set(out[0].keys())
+
+
+def test_get_realtime_divides_percent_when_no_prices(monkeypatch):
+    rows = [{"symbol": "600519.SH", "change_pct": 7.06}]
+    _patch_run_job(monkeypatch, {"realtime": {"ok": True, "op": "realtime", "rows": rows}})
+    out = StockSDKProvider().get_realtime()
+    assert out[0]["change_pct"] == pytest.approx(0.0706)
 
 
 def test_get_instruments_flatten_compatible(monkeypatch):

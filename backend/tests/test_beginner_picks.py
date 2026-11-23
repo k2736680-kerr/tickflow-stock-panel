@@ -100,6 +100,11 @@ def test_weak_index_still_shows_daily_picks():
     assert "67.6" not in blob
     assert payload["honesty"]["evidence"]["path"] == "docs/e1-evidence.md"
     assert payload["honesty"]["evidence"]["sample_start"] == "2026-02-11"
+    replay = payload["honesty"]["evidence"]["replay"]
+    assert replay["bought"] == 164
+    assert replay["same_day_close_up"] == 0.585
+    assert replay["sellable_plus_5pct_20d"] == 0.817
+    assert "当天卖不掉" in payload["signal_note"]
     assert "不是 90%" in payload["honesty"]["headline"]
     assert payload["honesty"]["not_a_guarantee"] is True
     assert payload["honesty"]["rise_causes"]
@@ -217,6 +222,37 @@ def test_csi300_strong_blocks_e1_but_not_hard_close():
     assert csi.ok is False
     assert csi.hard is False
     assert bp.verdict_from_gates(gates, 0)[0] == "no_candidates"
+
+
+def test_e1_keeps_the_shallower_name_when_only_one_slot():
+    deeper = {
+        "symbol": "600001.SH", "name": "更深", "close": 8.0,
+        "change_pct": -0.02, "dd60": -0.48, "amt_q": 8.0,
+        "vol_ratio_5d": 1.8, "r20": -0.30, "dnd20": 0, "volume": 1e6,
+    }
+    closer = {
+        "symbol": "600002.SH", "name": "接近三成", "close": 12.0,
+        "change_pct": -0.02, "dd60": -0.32, "amt_q": 12.0,
+        "vol_ratio_5d": 1.8, "r20": -0.10, "dnd20": 0, "volume": 1e6,
+    }
+    picks, _funnel = bp.select_e1_snipers([deeper, closer])
+    assert [p.symbol for p in picks] == ["600002.SH"]
+
+
+def test_e1_skips_drawdown_deeper_than_50_percent():
+    deep = {
+        "symbol": "600001.SH", "name": "跌透", "close": 8.0,
+        "change_pct": -0.02, "dd60": -0.62, "amt_q": 8.0,
+        "vol_ratio_5d": 1.8, "r20": -0.25, "dnd20": 0, "volume": 1e6,
+    }
+    held = {
+        "symbol": "600002.SH", "name": "深跌", "close": 12.0,
+        "change_pct": -0.02, "dd60": -0.36, "amt_q": 10.0,
+        "vol_ratio_5d": 1.8, "r20": -0.20, "dnd20": 0, "volume": 1e6,
+    }
+    picks, funnel = bp.select_e1_snipers([deep, held])
+    assert [p.symbol for p in picks] == ["600002.SH"]
+    assert funnel["dd60"] == 1
 
 
 def test_e1_selects_deep_drawdown_with_volume():
