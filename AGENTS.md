@@ -1,3 +1,18 @@
+# Tickflow Stock Panel · Agent 持久记忆
+
+> GitHub：`k2736680-kerr/tickflow-stock-panel`  
+> 工作副本：`~/AutoTestTools/Projects/测试乱七八糟/tickflow-stock-panel`（Windows 旧：`D:\AutoTestTools\Projects\测试乱七八糟\tickflow-stock-panel`）
+
+## 是什么
+
+A 股选股/回测/复盘面板：FastAPI 后端 + 前端，本地 `data/` 存 parquet、k线、job、回测矩阵缓存。
+
+## 本机运行
+
+以 [`本机交接.md`](本机交接.md) 为准（启动命令、端口、今日名单流程）。Mac 迁移时把 `.env` 放到 `~/AutoTestTools/Secrets/tickflow.env` 再 source，勿提交。
+
+---
+
 # AI 开发入口
 
 修改、调试或审查本仓库前，必须完整阅读并遵循根目录的 [`CONTRIBUTING.md`](CONTRIBUTING.md)。其中定义了项目架构、数据契约、数据源插件化、缓存与性能要求、测试矩阵以及 PR 复审和合并标准。
